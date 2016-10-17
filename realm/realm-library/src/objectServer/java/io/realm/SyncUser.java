@@ -241,7 +241,7 @@ public class SyncUser {
         // Acquire lock to prevent users creating new instances
         synchronized (Realm.class) {
             if (!syncUser.isLoggedIn()) {
-                return; // Already logged out
+                return; // Already local/global logout status
             }
 
             // Ensure that we can log out. If any Realm file is still open we should abort before doing anything
@@ -262,10 +262,6 @@ public class SyncUser {
                 session.getOsSession().stop();
             }
 
-            // Remove all local tokens, preventing further connections.
-            // FIXME We still need to cache the user token so it can be revoked.
-            syncUser.clearTokens();
-
             SyncManager.getUserStore().remove();
 
             // Delete all Realms if needed.
@@ -280,6 +276,11 @@ public class SyncUser {
                 }
             }
 
+            // Remove all local tokens, preventing further connections.
+            final Token userToken = syncUser.getUserToken();
+            syncUser.clearTokens();
+            syncUser.localLogout();
+
             // Finally revoke server token. The local user is logged out in any case.
             final AuthenticationServer server = SyncManager.getAuthServer();
             ThreadPoolExecutor networkPoolExecutor = SyncManager.NETWORK_POOL_EXECUTOR;
@@ -287,7 +288,7 @@ public class SyncUser {
 
                 @Override
                 protected LogoutResponse execute() {
-                    return server.logout(SyncUser.this, syncUser.getAuthenticationUrl());
+                    return server.logout(userToken, syncUser.getAuthenticationUrl());
                 }
 
                 @Override
@@ -297,6 +298,7 @@ public class SyncUser {
 
                 @Override
                 protected void onError(LogoutResponse response) {
+                    // TODO implement retry
                     RealmLog.error("Failed to log user out.\n" + response.getError().toString());
                 }
             });
